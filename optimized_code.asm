@@ -2,133 +2,138 @@ format ELF executable 3
 entry start
 
 segment readable writable
-x dd 0
-i dd 0
-j dd 0
-k dd 0
-ll dd 0
 
 segment readable executable
 start:
-	CALL main_logic
+	CALL func_main
 	MOV EAX, 1
 	XOR EBX, EBX
 	INT 0x80
 
-main_logic:
-	MOV EAX, 5
-	mov [x], EAX
-	; line 4: println(x)
-	MOV EAX, [x]
-	CALL print_int
-	; line 7: for-loop init
-	; line 7: i=0
+	; line 1: function func()
+func_func:
+	PUSH EBP
+	MOV EBP,ESP
+	SUB ESP,4
+	; line 3: if (n==0)
+	MOV EAX, [EBP+8]
+	PUSH EAX
 	MOV EAX, 0
-	MOV [i], EAX
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETE AL
+	PUSH EAX
+	pop eax
+	cmp eax,0
+	je L0
+	; line 3: return 0
+	MOV EAX, 0
+	MOV ESP,EBP
+	POP EBP
+	RET 4
 L0:
-	; line 7: for-loop condition
-	MOV EAX, [i]
+	; line 4: i=n
+	MOV EAX, [EBP+8]
+	MOV [EBP-4], EAX
+	; line 5: return func(n-1)+i
+	; line 5: call func(n-1)
+	MOV EAX, [EBP+8]
 	PUSH EAX
-	MOV EAX, 6
+	MOV EAX, 1
+	PUSH EAX
+	POP EBX
+	POP EAX
+	SUB EAX, EBX
+	PUSH EAX
+	CALL func_func
+	PUSH EAX
+	MOV EAX, [EBP-4]
+	PUSH EAX
+	POP EBX
+	POP EAX
+	ADD EAX, EBX
+	MOV ESP,EBP
+	POP EBP
+	RET 4
+	MOV ESP, EBP
+	POP EBP
+	RET 4
+	; line 8: function func2()
+func_func2:
+	PUSH EBP
+	MOV EBP,ESP
+	SUB ESP,4
+	; line 10: if (n==0)
+	MOV EAX, [EBP+8]
+	PUSH EAX
+	MOV EAX, 0
 	PUSH EAX
 	POP EBX
 	POP EAX
 	CMP EAX, EBX
 	MOV EAX, 0
-	SETL AL
+	SETE AL
 	PUSH EAX
 	pop eax
-	cmp eax, 0
+	cmp eax,0
 	je L1
-	; line 8: println(i)
-	MOV EAX, [i]
-	CALL print_int
-	; line 7: for-loop update
-	MOV EAX, [i]
-	PUSH EAX
-	INC EAX
-	MOV [i], EAX
-	pop eax
-	jmp L0
+	; line 10: return 0
+	MOV EAX, 0
+	MOV ESP,EBP
+	POP EBP
+	RET 4
 L1:
-	; line 11: k=4
-	MOV EAX, 4
-	MOV [k], EAX
-	; line 12: ll=6
-	MOV EAX, 6
-	MOV [ll], EAX
-L2:
-	; line 13: while (k>0)
-	MOV EAX, [k]
+	; line 11: i=n
+	MOV EAX, [EBP+8]
+	MOV [EBP-4], EAX
+	; line 12: return func(n-1)+i
+	; line 12: call func(n-1)
+	MOV EAX, [EBP+8]
 	PUSH EAX
-	MOV EAX, 0
+	MOV EAX, 1
 	PUSH EAX
 	POP EBX
 	POP EAX
-	CMP EAX, EBX
-	MOV EAX, 0
-	SETG AL
+	SUB EAX, EBX
 	PUSH EAX
-	pop eax
-	cmp eax,0
-	je L3
-	; line 14: ll=ll+3
-	MOV EAX, [ll]
+	CALL func_func
 	PUSH EAX
-	MOV EAX, 3
+	MOV EAX, [EBP-4]
 	PUSH EAX
 	POP EBX
 	POP EAX
 	ADD EAX, EBX
-	MOV [ll], EAX
-	MOV EAX, [k]
+	MOV ESP,EBP
+	POP EBP
+	RET 4
+	MOV ESP, EBP
+	POP EBP
+	RET 4
+	; line 15: function main()
+func_main:
+	PUSH EBP
+	MOV EBP,ESP
+	SUB ESP,4
+	; line 17: a=func(7)
+	; line 17: call func(7)
+	MOV EAX, 7
 	PUSH EAX
-	DEC EAX
-	MOV [k], EAX
-	POP EAX
-	jmp L2
-L3:
-	; line 18: println(ll)
-	MOV EAX, [ll]
+	CALL func_func
+	MOV [EBP-4], EAX
+	; line 18: println(a)
+	MOV EAX, [EBP-4]
 	CALL print_int
-	; line 19: println(k)
-	MOV EAX, [k]
-	CALL print_int
-	; line 21: k=4
-	MOV EAX, 4
-	MOV [k], EAX
-	; line 22: ll=6
-	MOV EAX, 6
-	MOV [ll], EAX
-L4:
-	; line 24: while (k--)
-	MOV EAX, [k]
-	PUSH EAX
-	DEC EAX
-	MOV [k], EAX
-	pop eax
-	cmp eax,0
-	je L5
-	; line 25: ll=ll+3
-	MOV EAX, [ll]
-	PUSH EAX
-	MOV EAX, 3
-	PUSH EAX
-	POP EBX
-	POP EAX
-	ADD EAX, EBX
-	MOV [ll], EAX
-	jmp L4
-L5:
-	; line 28: println(ll)
-	MOV EAX, [ll]
-	CALL print_int
-	; line 29: println(k)
-	MOV EAX, [k]
-	CALL print_int
+	; line 19: return 0
 	MOV EAX, 0
+	MOV ESP,EBP
+	POP EBP
 	RET
-
+	MOV ESP, EBP
+	POP EBP
+	RET
 print_int:
     PUSH EBP
     MOV EBP, ESP

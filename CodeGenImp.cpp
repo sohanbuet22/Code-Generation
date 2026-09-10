@@ -1,6 +1,7 @@
 #include "CodeGenImp.h"
 #include <iostream>
 #include <string>
+#include <vector>
 
 using namespace std;
 
@@ -27,11 +28,10 @@ void CodeGenEmitter::finalize(const std::string &outPath)
     out << "\n";
     out << "segment readable executable\n";
     out << "start:\n";
-    out << "\tCALL main_logic\n";
+    out << globalInit.str();
+    out << "\tCALL func_main\n";
     out << "\tMOV EAX, 1\n\tXOR EBX, EBX\n\tINT 0x80\n\n";
-    out << "main_logic:\n";
     out << in.rdbuf();
-    out << "\tRET\n\n";
     out << printIntProcedureAsm();
 }
 
@@ -124,8 +124,19 @@ any CodeGenImp::visitVar_declaration(CSubsetParser::Var_declarationContext *ctx)
 any CodeGenImp::visitSiglVarDecl(CSubsetParser::SiglVarDeclContext *ctx)
 {
     std::string name = ctx->ID()->getText();
-    symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
-    emitter.declareScalar(name);
+
+    if (!currentFuncName.empty())
+    {
+        localOffset -= 4;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType, false, 1, localOffset};
+        emitter.emit("SUB ESP,4");
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
+        emitter.declareScalar(name);
+    }
+
     return nullptr;
 }
 
@@ -133,9 +144,19 @@ any CodeGenImp::visitSiglVarDecl(CSubsetParser::SiglVarDeclContext *ctx)
 any CodeGenImp::visitMultiVarDecl(CSubsetParser::MultiVarDeclContext *ctx)
 {
     visit(ctx->declaration_list());
+
     std::string name = ctx->ID()->getText();
-    symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
-    emitter.declareScalar(name);
+    if (!currentFuncName.empty())
+    {
+        localOffset -= 4;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType, false, 1, localOffset};
+        emitter.emit("SUB ESP,4");
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
+        emitter.declareScalar(name);
+    }
     return nullptr;
 }
 
@@ -144,8 +165,18 @@ any CodeGenImp::visitSiglArrDecl(CSubsetParser::SiglArrDeclContext *ctx)
 {
     std::string name = ctx->ID()->getText();
     int size = std::stoi(ctx->CONST_INT()->getText());
-    symtab[name] = CodeGenVarInfo{currentDeclType, true, size};
-    emitter.declareArray(name, size);
+    if (!currentFuncName.empty())
+    {
+        localOffset -= 4 * size;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType, true, size, localOffset};
+        emitter.emit("SUB ESP, "+to_string(4*size));
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType, true, size};
+        emitter.declareArray(name, size);
+    }
+
     return nullptr;
 }
 
@@ -155,8 +186,17 @@ any CodeGenImp::visitMultiVarDeclWithArr(CSubsetParser::MultiVarDeclWithArrConte
     visit(ctx->declaration_list());
     std::string name = ctx->ID()->getText();
     int size = std::stoi(ctx->CONST_INT()->getText());
-    symtab[name] = CodeGenVarInfo{currentDeclType, true, size};
-    emitter.declareArray(name, size);
+    if (!currentFuncName.empty())
+    {
+        localOffset -= 4 * size;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType, true, size, localOffset};
+        emitter.emit("SUB ESP, " + to_string(4 * size));
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType, true, size};
+        emitter.declareArray(name, size);
+    }
     return nullptr;
 }
 
@@ -181,21 +221,33 @@ std::string CodeGenImp::resolveVariable(CSubsetParser::VariableContext *varCtx, 
     return "";
 }
 
+string CodeGenImp::varBaseOperand(const string &name)
+{
+    auto it = localSymtab.find(name);
+    if(it!=localSymtab.end())
+    {
+        int off = it->second.offset;
+        return off >= 0 ? ("EBP+"+to_string(off)) : ("EBP-"+to_string(-off));
+    }
+    return name;
+}
+
 // Rule: factor -> variable (loads the variable value into EAX)
 void CodeGenImp::loadVariable(CSubsetParser::VariableContext *varCtx)
 {
     bool isArray = false;
     std::string name = resolveVariable(varCtx, isArray);
+    string base = varBaseOperand(name);
     if (!isArray)
     {
-        emitter.emit("MOV EAX, [" + name + "]");
+        emitter.emit("MOV EAX, [" + base + "]");
         return;
     }
     auto *arr = dynamic_cast<CSubsetParser::ArrVarContext *>(varCtx);
     visit(arr->expression()); // pushes index value
     emitter.emit("POP EBX");
     emitter.emit("IMUL EBX, 4");
-    emitter.emit("MOV EAX, [" + name + " + EBX]");
+    emitter.emit("MOV EAX, [" + base + " + EBX]");
 }
 
 // Rule: expression -> variable ASSIGNOP logic_expression (stores computed RHS into target variable)
@@ -204,18 +256,19 @@ void CodeGenImp::storeVariable(CSubsetParser::VariableContext *varCtx)
     // Contract: value to store is already in EAX at call time.
     bool isArray = false;
     std::string name = resolveVariable(varCtx, isArray);
+    string base = varBaseOperand(name);
     if (!isArray)
     {
-        emitter.emit("MOV [" + name + "], EAX");
+        emitter.emit("MOV [" + base + "], EAX");
         return;
     }
     auto *arr = dynamic_cast<CSubsetParser::ArrVarContext *>(varCtx);
-    emitter.emit("PUSH EAX"); // save value; index-eval will clobber eax/ebx
-    visit(arr->expression()); // pushes index value on top of value
-    emitter.emit("POP EBX");  // ebx = index
+    emitter.emit("PUSH EAX"); 
+    visit(arr->expression()); 
+    emitter.emit("POP EBX");
     emitter.emit("IMUL EBX, 4");
-    emitter.emit("POP EAX"); // eax = original value
-    emitter.emit("MOV [" + name + " + EBX], EAX");
+    emitter.emit("POP EAX"); 
+    emitter.emit("MOV [" + base + " + EBX], EAX");
 }
 
 // ============================================================================
@@ -431,7 +484,7 @@ any CodeGenImp::visitPrintln_statement(CSubsetParser::Println_statementContext *
     std::string name = ctx->ID()->getText();
     emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
                     ": println(" + name + ")");
-    emitter.emit("MOV EAX, [" + name + "]");
+    emitter.emit("MOV EAX, [" + varBaseOperand(name) + "]");
     emitter.emit("CALL print_int");
     return nullptr;
 }
@@ -447,8 +500,16 @@ any CodeGenImp::visitExpression_statement_to_expression_semicolon(CSubsetParser:
 // Rule: statement -> RETURN expression ;
 any CodeGenImp::visitReturn_statement(CSubsetParser::Return_statementContext *ctx)
 {
+    emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
+                    ": return " + ctx->expression()->getText());
+    
     visit(ctx->expression()); // result pushed onto stack
     emitter.emit("POP EAX");  // return value goes into EAX
+    emitter.emit("MOV ESP,EBP");
+    emitter.emit("POP EBP");
+    emitter.emit(currentParamCount > 0
+                    ? ("RET "+to_string(4*currentParamCount))
+                    : "RET");
     return nullptr;
 }
 
@@ -465,12 +526,26 @@ declaration_list
 any CodeGenImp::visitSiglVarDeclWithInit(CSubsetParser::SiglVarDeclWithInitContext *ctx)
 {
     std::string name = ctx->ID()->getText();
-    symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
-    emitter.declareScalar(name);
+    if(!currentFuncName.empty())
+    {
+        localOffset -= 4;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType,false,1,localOffset};
+        emitter.emit("SUB ESP,4");
+        visit(ctx->logic_expression());
+        emitter.emit("POP EAX");
+        emitter.emit("mov ["+varBaseOperand(name)+ "],EAX");
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType,false,1};
+        emitter.declareScalar(name);
 
-    visit(ctx->logic_expression());
-    emitter.emit("POP EAX");
-    emitter.emit("mov [" + name + "], EAX");
+        emitter.beginGlobalInit();
+        visit(ctx->logic_expression());
+        emitter.emit("POP EAX");
+        emitter.emit("mov ["+name+ "], EAX");
+        emitter.endGlobalInit();
+    }
     return nullptr;
 }
 
@@ -478,12 +553,26 @@ any CodeGenImp::visitMultiVarDeclWithInit(CSubsetParser::MultiVarDeclWithInitCon
 {
     visit(ctx->declaration_list());
     std::string name = ctx->ID()->getText();
-    symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
-    emitter.declareScalar(name);
+    if (!currentFuncName.empty())
+    {
+        localOffset -= 4;
+        localSymtab[name] = CodeGenVarInfo{currentDeclType, false, 1, localOffset};
+        emitter.emit("SUB ESP, 4");
+        visit(ctx->logic_expression());
+        emitter.emit("POP EAX");
+        emitter.emit("mov [" + varBaseOperand(name) + "], EAX");
+    }
+    else
+    {
+        symtab[name] = CodeGenVarInfo{currentDeclType, false, 1};
+        emitter.declareScalar(name);
 
-    visit(ctx->logic_expression());
-    emitter.emit("POP EAX");
-    emitter.emit("mov [" + name + "], EAX");
+        emitter.beginGlobalInit();
+        visit(ctx->logic_expression());
+        emitter.emit("POP EAX");
+        emitter.emit("mov [" + name + "], EAX");
+        emitter.endGlobalInit();
+    }
     return nullptr;
 }
 
@@ -521,7 +610,6 @@ any CodeGenImp::visitExpression_to_logic_expression_with_compound_assignop(CSubs
         emitter.emit("mov eax, edx");
     }
 
-    emitter.emit("push eax");
     storeVariable(ctx->variable());
     emitter.emit("push eax");
     return nullptr;
@@ -651,31 +739,167 @@ arguments
 
 */
 
-//caller side
-any CodeGenImp::visitFactor_function_call(CSubsetParser::Factor_function_callContext *ctx) 
+void CodeGenImp::collectArgumentExprs(CSubsetParser::ArgumentsContext *ctx,
+                                      std::vector<CSubsetParser::Logic_expressionContext *> &out)
+{
+    if (!ctx)
+        return;
+    if (auto *single = dynamic_cast<CSubsetParser::Single_argumentContext *>(ctx))
+    {
+        out.push_back(single->logic_expression());
+        return;
+    }
+    if (auto *multi = dynamic_cast<CSubsetParser::Multi_argumentsContext *>(ctx))
+    {
+        collectArgumentExprs(multi->arguments(), out);
+        out.push_back(multi->logic_expression());
+        return;
+    }
+}
+
+// caller side
+any CodeGenImp::visitFactor_function_call(CSubsetParser::Factor_function_callContext *ctx)
+{
+    string name = ctx->ID()->getText();
+    emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
+                    ": call " + name + "(" + ctx->argument_list()->getText() + ")");
+    vector<CSubsetParser::Logic_expressionContext *> args;
+
+    if (auto *withArgs = dynamic_cast<CSubsetParser::Arg_list_with_argsContext *>(ctx->argument_list()))
+    {
+        collectArgumentExprs(withArgs->arguments(), args);
+    }
+    for (int i = static_cast<int>(args.size() - 1); i >= 0; --i)
+    {
+        visit(args[i]);
+    }
+
+    emitter.emit("CALL func_" + name);
+
+    emitter.emit("PUSH EAX");
+
+    return nullptr;
+}
+
+any CodeGenImp::visitArg_list_with_args(CSubsetParser::Arg_list_with_argsContext *ctx)
 {
     return visitChildren(ctx);
 }
 
-any CodeGenImp::visitArg_list_with_args(CSubsetParser::Arg_list_with_argsContext *ctx) 
+any CodeGenImp::visitArg_list_empty(CSubsetParser::Arg_list_emptyContext *ctx)
 {
     return visitChildren(ctx);
 }
 
-any CodeGenImp::visitArg_list_empty(CSubsetParser::Arg_list_emptyContext *ctx) 
+any CodeGenImp::visitMulti_arguments(CSubsetParser::Multi_argumentsContext *ctx)
 {
     return visitChildren(ctx);
 }
 
-any CodeGenImp::visitMulti_arguments(CSubsetParser::Multi_argumentsContext *ctx) 
+any CodeGenImp::visitSingle_argument(CSubsetParser::Single_argumentContext *ctx)
 {
     return visitChildren(ctx);
 }
 
-any CodeGenImp::visitSingle_argument(CSubsetParser::Single_argumentContext *ctx) 
+// callee side
+
+void CodeGenImp::collectParamNames(CSubsetParser::Parameter_listContext *ctx, std::vector<std::string> &names)
 {
-    return visitChildren(ctx);
+    if (!ctx)
+        return;
+    if (auto *s = dynamic_cast<CSubsetParser::Single_param_with_idContext *>(ctx))
+    {
+        names.push_back(s->ID()->getText());
+        return;
+    }
+    if (auto *s = dynamic_cast<CSubsetParser::Single_param_without_idContext *>(ctx))
+    {
+        names.push_back("");
+        return;
+    }
+    if (auto *m = dynamic_cast<CSubsetParser::Multiple_param_with_idContext *>(ctx))
+    {
+        collectParamNames(m->parameter_list(), names);
+        names.push_back(m->ID()->getText());
+        return;
+    }
+    if (auto *m = dynamic_cast<CSubsetParser::Multiple_param_without_idContext *>(ctx))
+    {
+        collectParamNames(m->parameter_list(), names);
+        names.push_back("");
+        return;
+    }
 }
 
-//callee side
+void CodeGenImp::beginFunction(const string &name, CSubsetParser::Parameter_listContext *paramCtx)
+{
+    currentFuncName = name;
+    localOffset = 0;
+    localSymtab.clear();
 
+    vector<string> paramNames;
+    if (paramCtx)
+    {
+        collectParamNames(paramCtx, paramNames);
+    }
+
+    currentParamCount = static_cast<int>(paramNames.size());
+
+    int offset = 8;
+    for (const auto &pname : paramNames)
+    {
+        if (!pname.empty())
+            localSymtab[pname] = CodeGenVarInfo{"int", false, 1, offset};
+        offset += 4;
+    }
+
+    emitter.emitLabel("func_" + name);
+    emitter.emit("PUSH EBP");
+    emitter.emit("MOV EBP,ESP");
+}
+
+void CodeGenImp::endFunction()
+{
+    emitter.emit("MOV ESP, EBP");
+    emitter.emit("POP EBP");
+    emitter.emit(currentParamCount > 0
+                     ? ("RET " + std::to_string(4 * currentParamCount))
+                     : "RET");
+
+    currentFuncName.clear();
+    localSymtab.clear();
+    localOffset = 0;
+    currentParamCount = 0;
+}
+
+any CodeGenImp::visitFunc_def_with_param(CSubsetParser::Func_def_with_paramContext *ctx) 
+{
+    string name = ctx->ID()->getText();
+    emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
+                    ": function " + name + "()");
+    beginFunction(name, ctx->parameter_list());
+    visit(ctx->compound_statement());
+    endFunction();
+    return nullptr;
+}
+
+any CodeGenImp::visitFunc_def_without_param(CSubsetParser::Func_def_without_paramContext *ctx) 
+{
+    string name = ctx->ID()->getText();
+    emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
+                    ": function " + name + "()");
+    beginFunction(name, nullptr);
+    visit(ctx->compound_statement());
+    endFunction();
+    return nullptr;
+}
+
+any CodeGenImp::visitFunc_declaration_with_param(CSubsetParser::Func_declaration_with_paramContext *ctx) 
+{
+    return nullptr;
+}
+
+any CodeGenImp::visitFunc_declaration_without_param(CSubsetParser::Func_declaration_without_paramContext *ctx) 
+{
+    return nullptr;
+}
