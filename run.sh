@@ -6,7 +6,7 @@ source venv/bin/activate
 
 ./run-script.sh input.txt
 
-fasm code.asm code_bin
+fasm optimized_code.asm code_bin
 
 ./code_bin
 

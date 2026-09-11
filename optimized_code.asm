@@ -1,7 +1,7 @@
 format ELF executable 3
 entry start
 
-segment readable writable
+segment readable writeable
 
 segment readable executable
 start:
@@ -10,123 +10,118 @@ start:
 	XOR EBX, EBX
 	INT 0x80
 
-	; line 1: function func()
-func_func:
-	PUSH EBP
-	MOV EBP,ESP
-	SUB ESP,4
-	; line 3: if (n==0)
-	MOV EAX, [EBP+8]
-	PUSH EAX
-	MOV EAX, 0
-	PUSH EAX
-	POP EBX
-	POP EAX
-	CMP EAX, EBX
-	MOV EAX, 0
-	SETE AL
-	PUSH EAX
-	pop eax
-	cmp eax,0
-	je L0
-	; line 3: return 0
-	MOV EAX, 0
-	MOV ESP,EBP
-	POP EBP
-	RET 4
-L0:
-	; line 4: i=n
-	MOV EAX, [EBP+8]
-	MOV [EBP-4], EAX
-	; line 5: return func(n-1)+i
-	; line 5: call func(n-1)
-	MOV EAX, [EBP+8]
-	PUSH EAX
-	MOV EAX, 1
-	PUSH EAX
-	POP EBX
-	POP EAX
-	SUB EAX, EBX
-	PUSH EAX
-	CALL func_func
-	PUSH EAX
-	MOV EAX, [EBP-4]
-	PUSH EAX
-	POP EBX
-	POP EAX
-	ADD EAX, EBX
-	MOV ESP,EBP
-	POP EBP
-	RET 4
-	MOV ESP, EBP
-	POP EBP
-	RET 4
-	; line 8: function func2()
-func_func2:
-	PUSH EBP
-	MOV EBP,ESP
-	SUB ESP,4
-	; line 10: if (n==0)
-	MOV EAX, [EBP+8]
-	PUSH EAX
-	MOV EAX, 0
-	PUSH EAX
-	POP EBX
-	POP EAX
-	CMP EAX, EBX
-	MOV EAX, 0
-	SETE AL
-	PUSH EAX
-	pop eax
-	cmp eax,0
-	je L1
-	; line 10: return 0
-	MOV EAX, 0
-	MOV ESP,EBP
-	POP EBP
-	RET 4
-L1:
-	; line 11: i=n
-	MOV EAX, [EBP+8]
-	MOV [EBP-4], EAX
-	; line 12: return func(n-1)+i
-	; line 12: call func(n-1)
-	MOV EAX, [EBP+8]
-	PUSH EAX
-	MOV EAX, 1
-	PUSH EAX
-	POP EBX
-	POP EAX
-	SUB EAX, EBX
-	PUSH EAX
-	CALL func_func
-	PUSH EAX
-	MOV EAX, [EBP-4]
-	PUSH EAX
-	POP EBX
-	POP EAX
-	ADD EAX, EBX
-	MOV ESP,EBP
-	POP EBP
-	RET 4
-	MOV ESP, EBP
-	POP EBP
-	RET 4
-	; line 15: function main()
+	; line 1: function main()
 func_main:
 	PUSH EBP
 	MOV EBP,ESP
 	SUB ESP,4
-	; line 17: a=func(7)
-	; line 17: call func(7)
-	MOV EAX, 7
-	PUSH EAX
-	CALL func_func
+	SUB ESP,4
+	SUB ESP,4
+	; line 5: i=3
+	MOV EAX, 3
 	MOV [EBP-4], EAX
-	; line 18: println(a)
+	; line 6: j=8
+	MOV EAX, 8
+	MOV [EBP-8], EAX
+	; line 7: k=6
+	MOV EAX, 6
+	MOV [EBP-12], EAX
+	; line 10: if (i==3)
+	MOV EAX, [EBP-4]
+	PUSH EAX
+	MOV EAX, 3
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETE AL
+	CMP EAX, 0
+	JE L0
+	; line 11: println(j)
+	MOV EAX, [EBP-8]
+	CALL print_int
+L0:
+	; line 14: if (j<8) ... else ...
+	MOV EAX, [EBP-8]
+	PUSH EAX
+	MOV EAX, 8
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETL AL
+	CMP EAX, 0
+	JE L1
+	; line 15: println(i)
 	MOV EAX, [EBP-4]
 	CALL print_int
-	; line 19: return 0
+	JMP L2
+L1:
+	; line 18: println(k)
+	MOV EAX, [EBP-12]
+	CALL print_int
+L2:
+	; line 21: if (k!=6) ... else ...
+	MOV EAX, [EBP-12]
+	PUSH EAX
+	MOV EAX, 6
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETNE AL
+	CMP EAX, 0
+	JE L3
+	; line 22: println(k)
+	MOV EAX, [EBP-12]
+	CALL print_int
+	JMP L4
+L3:
+	; line 24: if (j>8) ... else ...
+	MOV EAX, [EBP-8]
+	PUSH EAX
+	MOV EAX, 8
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETG AL
+	CMP EAX, 0
+	JE L5
+	; line 25: println(j)
+	MOV EAX, [EBP-8]
+	CALL print_int
+	JMP L4
+L5:
+	; line 27: if (i<5) ... else ...
+	MOV EAX, [EBP-4]
+	PUSH EAX
+	MOV EAX, 5
+	PUSH EAX
+	POP EBX
+	POP EAX
+	CMP EAX, EBX
+	MOV EAX, 0
+	SETL AL
+	CMP EAX, 0
+	JE L7
+	; line 28: println(i)
+	MOV EAX, [EBP-4]
+	CALL print_int
+	JMP L4
+L7:
+	; line 31: k=0
+	MOV EAX, 0
+	MOV [EBP-12], EAX
+	; line 32: println(k)
+	MOV EAX, [EBP-12]
+	CALL print_int
+L4:
+	; line 36: return 0
 	MOV EAX, 0
 	MOV ESP,EBP
 	POP EBP
@@ -192,6 +187,6 @@ print_int:
     POP EBP
     RET
 
-segment readable writable
+segment readable writeable
 int_buf:   rb 16
 neg_flag:  dd 0

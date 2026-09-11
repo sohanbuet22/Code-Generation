@@ -61,6 +61,6 @@ print_int:
     POP EBP
     RET
 
-segment readable writable
+segment readable writeable
 int_buf:   rb 16
 neg_flag:  dd 0

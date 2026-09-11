@@ -23,7 +23,7 @@ void CodeGenEmitter::finalize(const std::string &outPath)
 
     out << "format ELF executable 3\n";
     out << "entry start\n\n";
-    out << "segment readable writable\n";
+    out << "segment readable writeable\n";
     out << dataDecls.str();
     out << "\n";
     out << "segment readable executable\n";
@@ -99,7 +99,7 @@ std::string CodeGenEmitter::printIntProcedureAsm()
     POP EBP
     RET
 
-segment readable writable
+segment readable writeable
 int_buf:   rb 16
 neg_flag:  dd 0
 )ASM";
@@ -533,7 +533,7 @@ any CodeGenImp::visitSiglVarDeclWithInit(CSubsetParser::SiglVarDeclWithInitConte
         emitter.emit("SUB ESP,4");
         visit(ctx->logic_expression());
         emitter.emit("POP EAX");
-        emitter.emit("mov ["+varBaseOperand(name)+ "],EAX");
+        emitter.emit("MOV ["+varBaseOperand(name)+ "],EAX");
     }
     else
     {
@@ -543,7 +543,7 @@ any CodeGenImp::visitSiglVarDeclWithInit(CSubsetParser::SiglVarDeclWithInitConte
         emitter.beginGlobalInit();
         visit(ctx->logic_expression());
         emitter.emit("POP EAX");
-        emitter.emit("mov ["+name+ "], EAX");
+        emitter.emit("MOV ["+name+ "], EAX");
         emitter.endGlobalInit();
     }
     return nullptr;
@@ -560,7 +560,7 @@ any CodeGenImp::visitMultiVarDeclWithInit(CSubsetParser::MultiVarDeclWithInitCon
         emitter.emit("SUB ESP, 4");
         visit(ctx->logic_expression());
         emitter.emit("POP EAX");
-        emitter.emit("mov [" + varBaseOperand(name) + "], EAX");
+        emitter.emit("MOV [" + varBaseOperand(name) + "], EAX");
     }
     else
     {
@@ -570,7 +570,7 @@ any CodeGenImp::visitMultiVarDeclWithInit(CSubsetParser::MultiVarDeclWithInitCon
         emitter.beginGlobalInit();
         visit(ctx->logic_expression());
         emitter.emit("POP EAX");
-        emitter.emit("mov [" + name + "], EAX");
+        emitter.emit("MOV [" + name + "], EAX");
         emitter.endGlobalInit();
     }
     return nullptr;
@@ -579,39 +579,39 @@ any CodeGenImp::visitMultiVarDeclWithInit(CSubsetParser::MultiVarDeclWithInitCon
 any CodeGenImp::visitExpression_to_logic_expression_with_compound_assignop(CSubsetParser::Expression_to_logic_expression_with_compound_assignopContext *ctx)
 {
     loadVariable(ctx->variable());
-    emitter.emit("push eax");
+    emitter.emit("PUSH EAX");
     visit(ctx->logic_expression());
 
-    emitter.emit("pop ebx");
-    emitter.emit("pop eax");
+    emitter.emit("POP EBX");
+    emitter.emit("POP EAX");
 
     string op = ctx->COMPOUND_ASSIGNOP()->getText();
     if (op == "+=")
     {
-        emitter.emit("add eax, ebx");
+        emitter.emit("ADD EAX, EBX");
     }
     else if (op == "-=")
     {
-        emitter.emit("sub eax, ebx");
+        emitter.emit("SUB EAX, EBX");
     }
     else if (op == "*=")
     {
-        emitter.emit("imul eax, ebx");
+        emitter.emit("IMUL EAX, EBX");
     }
     else if (op == "/=")
     {
-        emitter.emit("cdq");
-        emitter.emit("idiv ebx");
+        emitter.emit("CDQ");
+        emitter.emit("IDIV EBX");
     }
     else
     { // "%="
-        emitter.emit("cdq");
-        emitter.emit("idiv ebx");
-        emitter.emit("mov eax, edx");
+        emitter.emit("CDQ");
+        emitter.emit("IDIV EBX");
+        emitter.emit("MOV EAX, EDX");
     }
 
     storeVariable(ctx->variable());
-    emitter.emit("push eax");
+    emitter.emit("PUSH EAX");
     return nullptr;
 }
 
@@ -644,18 +644,18 @@ any CodeGenImp::visitFor_statement(CSubsetParser::For_statementContext *ctx)
         emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) + ": for-loop condition");
 
         visit(condCtx->expression());
-        emitter.emit("pop eax");
-        emitter.emit("cmp eax, 0");
-        emitter.emit("je " + endLabel);
+        emitter.emit("POP EAX");
+        emitter.emit("CMP EAX, 0");
+        emitter.emit("JE " + endLabel);
     }
 
     visit(ctx->statement());
 
     emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) + ": for-loop update");
     visit(ctx->expression());
-    emitter.emit("pop eax");
+    emitter.emit("POP EAX");
 
-    emitter.emit("jmp " + startLabel);
+    emitter.emit("JMP " + startLabel);
     emitter.emitLabel(endLabel);
     return nullptr;
 }
@@ -666,9 +666,9 @@ any CodeGenImp::visitIf_statement(CSubsetParser::If_statementContext *ctx)
     emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
                     ": if (" + ctx->expression()->getText() + ")");
     visit(ctx->expression());
-    emitter.emit("pop eax");
-    emitter.emit("cmp eax,0");
-    emitter.emit("je " + endLbl);
+    emitter.emit("POP EAX");
+    emitter.emit("CMP EAX, 0");
+    emitter.emit("JE " + endLbl);
 
     visit(ctx->statement());
 
@@ -684,12 +684,12 @@ any CodeGenImp::visitIf_else_statement(CSubsetParser::If_else_statementContext *
     emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
                     ": if (" + ctx->expression()->getText() + ") ... else ...");
     visit(ctx->expression());
-    emitter.emit("pop eax");
-    emitter.emit("cmp eax,0");
-    emitter.emit("je " + elseLabel);
+    emitter.emit("POP EAX");
+    emitter.emit("CMP EAX, 0");
+    emitter.emit("JE " + elseLabel);
 
     visit(ctx->statement(0));
-    emitter.emit("jmp " + endLabel);
+    emitter.emit("JMP " + endLabel);
 
     emitter.emitLabel(elseLabel);
     visit(ctx->statement(1));
@@ -707,12 +707,12 @@ any CodeGenImp::visitWhile_statement(CSubsetParser::While_statementContext *ctx)
     emitter.comment("line " + std::to_string(ctx->getStart()->getLine()) +
                     ": while (" + ctx->expression()->getText() + ")");
     visit(ctx->expression());
-    emitter.emit("pop eax");
-    emitter.emit("cmp eax,0");
-    emitter.emit("je " + endLabel);
+    emitter.emit("POP EAX");
+    emitter.emit("CMP EAX, 0");
+    emitter.emit("JE " + endLabel);
 
     visit(ctx->statement());
-    emitter.emit("jmp " + startLabel);
+    emitter.emit("JMP " + startLabel);
 
     emitter.emitLabel(endLabel);
     return nullptr;

@@ -1,8 +1,4 @@
-// ============================================================================
-// peephole.cpp — reads code.asm, applies the 4 required optimizations,
-// writes optimized_code.asm. Compile standalone or link into your codegen
-// binary and call optimize("code.asm", "optimized_code.asm") after finalize().
-// ============================================================================
+
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -18,8 +14,7 @@ static std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
-// Extract "MOV" from "mov eax, ebx" -> returns uppercased mnemonic, and
-// fills operands (trimmed, split on first comma).
+
 static bool parseInstr(const std::string& line, std::string& mnem,
                         std::string& op1, std::string& op2) {
     std::string t = trim(line);
@@ -52,9 +47,7 @@ void optimize(const std::string& inPath, const std::string& outPath) {
     std::string l;
     while (std::getline(in, l)) lines.push_back(l);
 
-    // ---- Pass 1: remove redundant consecutive MOV a,b / MOV b,a ----
-    // ---- Pass 2: remove redundant PUSH x / POP x pairs ----
-    // ---- Pass 3: remove no-op ADD x,0 / SUB x,0 / MUL x,1 / IMUL x,1 ----
+
     std::vector<std::string> pass1;
     for (size_t i = 0; i < lines.size(); ++i) {
         std::string mnem, op1, op2, nmnem, nop1, nop2;
@@ -85,8 +78,7 @@ void optimize(const std::string& inPath, const std::string& outPath) {
         pass1.push_back(lines[i]);
     }
 
-    // ---- Pass 4: collapse consecutive labels (L3: L4: L5: -> keep one,
-    //      redirect all jumps targeting the removed labels to the kept one) ----
+    
     std::vector<std::string> pass2;
     std::unordered_map<std::string, std::string> redirect; // dropped -> kept
     for (size_t i = 0; i < pass1.size(); ++i) {
